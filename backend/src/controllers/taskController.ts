@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { z } from 'zod'
+import { canTransition, Status } from '../utils/taskRules'
 
 // Validation schemas
 const createTaskSchema = z.object({
@@ -151,6 +152,26 @@ export const updateTask = async (req: Request<{ id: string }>, res: Response) =>
   try {
     const { id } = req.params
     const validatedData = updateTaskSchema.parse(req.body)
+
+    if (validatedData.status) {
+      const currentTask = await prisma.task.findUnique({ where: { id } })
+
+      if (!currentTask) {
+        res.status(404).json({
+          success: false,
+          error: 'Task not found'
+        })
+        return
+      }
+
+      if (!canTransition(currentTask.status as Status, validatedData.status)) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid status transition'
+        })
+        return
+      }
+    }
 
     // If updating userId or categoryId, verify they exist
     if (validatedData.userId) {

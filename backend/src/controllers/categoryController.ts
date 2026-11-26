@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { z } from 'zod'
 import { canDeleteCategory } from '../utils/categoryRules'
+import { normalizeName } from '../utils/normalize'
 
 // Validation schemas
 const createCategorySchema = z.object({
@@ -85,9 +86,19 @@ export const getCategoryById = async (req: Request<{ id: string }>, res: Respons
 export const createCategory = async (req: Request, res: Response) => {
   try {
     const validatedData = createCategorySchema.parse(req.body)
+    const normalizedName = normalizeName(validatedData.name)
+    const existingCategory = await prisma.category.findUnique({ where: { name: normalizedName } })
+
+    if (existingCategory) {
+      res.status(409).json({
+        success: false,
+        error: 'Category name already exists'
+      })
+      return
+    }
 
     const category = await prisma.category.create({
-      data: validatedData,
+      data: { ...validatedData, name: normalizedName },
       include: {
         tasks: true
       }
@@ -128,10 +139,22 @@ export const updateCategory = async (req: Request<{ id: string }>, res: Response
   try {
     const { id } = req.params
     const validatedData = updateCategorySchema.parse(req.body)
+    const normalizedName = validatedData.name ? normalizeName(validatedData.name) : undefined
+
+    if (normalizedName) {
+      const existingCategory = await prisma.category.findUnique({ where: { name: normalizedName } })
+      if (existingCategory && existingCategory.id !== id) {
+        res.status(409).json({
+          success: false,
+          error: 'Category name already exists'
+        })
+        return
+      }
+    }
 
     const category = await prisma.category.update({
       where: { id },
-      data: validatedData,
+      data: normalizedName ? { ...validatedData, name: normalizedName } : validatedData,
       include: {
         tasks: true
       }
